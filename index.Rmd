@@ -1,0 +1,1049 @@
+---
+title: "Data wrangling and visualization in R"
+author: "Sean Trott"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document: default
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi=300)
+```
+
+# High-level goals
+
+The goal of this tutorial is to provide a smattering of useful libraries and tools for **data wrangling** and **data visualization** in R. 
+
+The term ["data wrangling"](https://en.wikipedia.org/wiki/Data_wrangling) refers to the processes of *transforming* or *manipulating* raw data into a useful format for downstream analysis and visualization. Here, data are conceptualized as some sort of livestock, which must be "herded" and/or organized---in this scenario, you presumably fill the role of the rancher. But regardless of the metaphor employed, the core idea is that working with data frequently requires transforming that data in a manner conducive to the set of analyses, summaries, or visualizations you want to produce. Form must be fit to the desired function. 
+
+[Data visualization](https://en.wikipedia.org/wiki/Data_visualization) is perhaps a more intuitive term, referring to the process (and result) of representing data graphically. There are (in my view) at least two main reasons to generate data visualizations. First, it is a useful way to **communicate information about data**; to this end, data visualizations should be clear, accurate (obviously), and relatively concise ^[Though bear in mind that I'm certainly not an expert in research on what makes for good data visualization.]. And second, data visualization can be helpful for exploring trends or pattern in your data. (Though, a brief caveat: data visualization is useful for generating hypotheses in an exploratory way, but you need to watch out for using it to hypothesize after the results are known, i.e., [HARKing](https://en.wikipedia.org/wiki/HARKing). That is, generating a bunch of different data visualizations to determine which statistical test to run isn't much different from running a bunch of t-tests and selecting only the significant results.)
+
+This tutorial is certainly not exhaustive. The point is simply to serve as an introduction or starting point for learning more about some of these useful tools. There are, of course, many additional resources for learning about data wrangling and visualization in R:
+
+- [data wrangling cheatsheet](https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf)  
+- [tidy data (Wickham, 2014)]((https://vita.had.co.nz/papers/tidy-data.pdf)) 
+- [data visualization cheatsheet](https://github.com/rstudio/cheatsheets/blob/master/data-visualization-2.1.pdf)  
+- [a layered grammar of graphics (Wickham 2010)](https://byrneslab.net/classes/biol607/readings/wickham_layered-grammar.pdf)  
+- [data visualization tutorial](https://r4ds.had.co.nz/data-visualisation.html)
+
+
+# Load libraries
+
+This tutorial will use examples from the following libraries:
+
+- `tidyverse` 
+- `corrplot` 
+- `forcats` 
+- `ggridges` 
+- `lme4`  
+- `clue`  
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(forcats)
+library(corrplot)
+library(ggridges)
+library(lme4)
+library(clue)
+```
+
+
+# Data wrangling
+
+As noted above, "data wrangling" is a broad term encompassing pretty much any transformations you might need to apply to your data to get it into the proper format for visualization or analysis. I'll be focusing on some of the common operations found in the `tidyverse` library (most of which are also summarized [in this extremely helpful cheatsheet](https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf)).
+
+## Tidy data: thinking about dataset structure
+
+There are, of course, many philosophies on what makes data "messy" or "clean". Central to the `tidyverse` set of packages is the notion of **tidy data**. 
+
+Tidy data, as defined by Hadley Wickham [(Wickham, 2014)]((https://vita.had.co.nz/papers/tidy-data.pdf)), have the following characteristics:
+
+1. Each variable forms a column.  
+2. Each observation forms a row. 
+3. Each type of observational unit forms a table. 
+
+Here's Wickham (2014, pg. 5) on why tidy data is appropriate:
+
+> Tidy data makes it easy for an analyst or a computer to extract needed variables because it provides a standard way of structuring a dataset... If you consider how many data analysis operations involve all of the values in a variable (every aggregation function), you can see how important it is to extract these values in a simple, standard way. Tidy data is particularly well suited for vectorised programming languages like R, because the layout ensures that values of different variables from the same observation are always paired.
+
+The way I think about this is: if you imagine the statistical model you want to build (e.g., $Y = X_1 + X_2$), the summary statistic you want to calculate (e.g., mean $Y$ for values of categorical factor $X_1$), or the visualization you want to produce (e.g., a boxplot of $Y$ as a function of categorical factor $X_1$), **each of the relevant dimensions should be a column in your dataset, and each of the observations you want to model, summarize, or plot should be a row in your dataset**. Tidy data makes it easy to summarize, manipulate, visualize, and model your data.
+
+As an example, let's consider the following three data structures (adapted from Wickham, 2014) all representing the "same" underlying data---three participants (`john`, `mary`, and `jane`) in an experiment with two `treatments` (`a/b/`), with each treatment for each participant producing some `result`. In each case, we want to ask the same question of the data: does the `treatment` applied produce different a `result`, controlling for differences across subjects?
+
+The formal specification for such a model might look as follows ^[Note that the denotation of the $subject$ variable here will vary depending on exactly how you want to include that random factor in the model, e.g., whether you include a random slope for the `treatment` effect for each subject or whether it's simply coded as a random intercept.]:
+
+$Y_{result} = X_{treatment} + W_{subject} + \epsilon$
+
+First up is an example of "messy" data. Each participant gets their own column of results, and the treatment is indicated by the `treatment` column.
+
+```{r}
+df_messy_1 = data.frame(john = c(10, 11),
+                        mary = c(20, 25),
+                        jane = c(5, 10),
+                        treatment = c('a', 'b'))
+
+df_messy_1
+
+```
+
+This dataset structure makes certain operations easy, like calculating the mean value for a given participant:
+
+```{r}
+mean(df_messy_1$john)
+```
+
+But other operations are much harder, like calculating the mean value for a `treatment`. And it's also not clear how you'd easily build a statistical model using standard modeling functions in R (e.g., `lm` or `aov`). 
+
+Here's another example of a messy data structure: 
+
+```{r}
+
+df_messy_2 = data.frame(name = c('john', 'mary', 'jane'),
+                        a = c(10, 20, 5),
+                        b = c(11, 25, 10))
+
+df_messy_2
+```
+
+Now it's easy to get the mean of a `treatment`:
+
+```{r}
+mean(df_messy_2$a)
+```
+
+But now you can't easily get the mean of each participant. And if you want to model the differences between `a` and `b`, it's again not clear how you'd specify that model in R---particularly if you wanted to add a grouping factor for each participant.
+
+Now here's an example of **tidy** data:
+
+```{r}
+df_tidy = data.frame(name = c('john', 'john', 'mary', 'mary', 'jane', 'jane'),
+                     result = c(10, 11, 20, 25, 5, 10),
+                     treatment = c('a', 'b', 'a', 'b', 'a', 'b'))
+
+df_tidy
+```
+
+This data structure is well-suited to the question we want to ask: do differences in `treatment` affect `result` across different participants (i.e., `name`)? It translates very well to the formal specification of this question described above:
+
+```{r}
+model_full = lmer(data = df_tidy,
+                  result ~ treatment + (1 | name))
+```
+
+It's also very easy to use other `tidyverse` functions to summarize this data, and critically, the **same functions** can be used to summarize different aspects of the data:
+
+```{r}
+df_tidy %>%
+  group_by(name) %>%
+  summarise(mean_result = mean(result),
+            sd_result = sd(result))
+
+df_tidy %>%
+  group_by(treatment) %>%
+  summarise(mean_result = mean(result),
+            sd_result = sd(result))
+```
+
+### Brief note on dataset structure
+
+I recognize that thinking about data structures isn't necessarily **intuitive** or even **interesting**. It certainly isn't intuitive to me, and it's hard to find it interesting without understanding it.
+
+But anyone working with data will come up against these issues at some point, and it's helpful to have a *vocabulary* with which to identify the problems you're facing. For a long time, I was frustrated because I often had messy data and wanted it to be tidy, but I didn't even know that's what I wanted. Now I'm less frustrated: I still have messy data but I'm a *little* better at diagnosing exactly what's messy about it, and that helps make it tidy.
+
+I also think it's important to point out that the structures in `df_messy_1` or `df_messy_2` aren't inherently "bad" representations of data; they might be useful for certain purposes, like presenting a table in a paper. But the point here is that **tidy** data makes many computational operations very easy, and that's part of the goal of data wrangling.
+
+## Reshaping: how to tidy messy data?
+
+An obvious question at this point is: given that my data isn't tidy, how do I make it tidy?
+
+Fortunately, the `tidyverse` has a number of options for this. One of the most relevant is the `gather` function. From the documentation:
+
+> Gather takes multiple columns and collapses into key-value pairs, duplicating all other columns as needed. You use gather() when you notice that you have columns that are not variables.
+
+In other words, `gather` is a really straightforward way to make data tidy, in which each row consists of an **observation**.
+
+Let's use `gather` on each of our messy dataframes from above.
+
+### Tidying messy data no. 1
+
+First, consider the dataframe in which each participant gets their own column.  
+
+```{r}
+df_messy_1
+
+```
+
+How could we make this tidy? There are currently four columns and two rows, but in reality, we actually have *six* observations: one per treatment per participant. This means that ultimately, we want our data structure to have **three** columns (following the format of `df_tidy` above): one column indicating the `treatment`, one column indicating the `result` for that treatment, and one column indicating the `name` of the participant from whom that result was obtained.
+
+This is the call to `gather` that would produce such a data structure:
+
+
+```{r}
+df_messy_1 %>%
+  gather(... = c(john, mary, jane), key = 'name', value = 'result')
+
+```
+
+What exactly is happening here?
+
+First, note the [piping](https://www.datacamp.com/community/tutorials/pipe-r-tutorial) operator `%>%`: this is a way to **chain together** multiple functions in R. In this case, we can omit the `data` argument from `gather` because `%>%` is telling R to pass it in already. I like this approach. because each function/operation can be given its own line, making the code clear and readable.
+
+Next, the `... = c(john, mary, jane)` argument tells `gather` which columns to "gather", essentially. If you leave this blank, it'll try to gather *all* the columns, but that's not what we want here: we don't want to put `treatment` and `name` in the same column. In this case, we're telling the function to collect the three named columns and put them into a single set of `key/value` columns.
+
+Finally, we tell `gather` what we want to name these new columns. You can leave this blank too, in which case they'll just be named `key` and `value`. But here we know that we want to name them `name` (the participant) and `result` (the outcome of that treatment). 
+
+
+### Tidying messy data no. 2
+
+Now let's turn to the other messy data structure:
+
+```{r}
+df_messy_2
+```
+
+This one has the opposite problem. Each `name` gets its own row, but there are separate columns for the two `treatments`. We need to `gather` these two columns and put them into a single set of `key/value` columns:
+
+```{r}
+df_messy_2 %>%
+  gather(... = c(a, b), key = 'treatment', value = 'result')
+
+```
+
+Just as above, this produces a data structure that's identical (disregarding the order of the rows) to `df_tidy`!
+
+### Other reshaping operations
+
+There are a number of operations that fall under the broad category of reshaping", and even many other packages (including `reshape`) that have their own functions (e.g., `melt`) to reshape data. 
+
+[This cheatsheet](https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf) summarizes some of the `tidyverse` functions for reshaping very succintly. 
+
+## Subsetting operations
+
+Another very common operation is **subsetting** data in some way---either subsetting particular *rows* based on the values in their cells (i.e., **filtering**), or subsetting particular *columns* based on their name. 
+
+### Subsetting rows
+
+`filter` is probably the most frequent row subsetting operation I use. Combined with the pipe `%>%` syntax, it's a great way to pipe in different subsets of your data into a visualization or aggregation function for exploratory data analysis. It's also just an integral part of any data processing pipeline in which you need to exclude data on the basis of certain features.
+
+The syntax is straightforward. Here's a demonstration using the built-in `mtcars` dataset, which has information about the average miles-per-gallon (`mpg`), number of cylinders (`cyl`), etc., about 32 different cars. We can use `filter` to only consider cars with `mpg` better than the mean `mpg` in the dataset.
+
+```{r}
+mean(mtcars$mpg)
+
+mtcars %>%
+  filter(mpg > mean(mtcars$mpg)) 
+```
+
+Note that for numeric variables, standard mathematical operators all apply for `filter`: `>`, `>=`, `<`, `<=`, `==`, `!=`. You can also use other operators like %in%---which, as the name implies, tests whether the value in a given row is contained in a given vector. For nominal (i.e., categorical) variables, you obviously can't use comparators like `>`. But you can still test for string equality (`!=`) or use operations like `%in%`.
+
+For instance, we can filter our `df_tidy` dataframe from earlier to only consider observations from a given participant:
+
+```{r}
+df_tidy %>%
+  filter(name == "john")
+```
+
+Another useful subsetting operation is `distinct`. This will return a dataframe with **distinct** rows, based on the column names you passed in. If you don't pass any column names in, it will check for rows that are entirely the same, i.e., have the same value for each column. This is also a useful way to check for duplicates in your data.
+
+You might also want to randomly sample rows from your data, either in terms of an absolute number of rows or in terms of a proportion of your dataset. `tidyverse` has functions for both of these operations. First, you can sample by an absolute number using `sample_n`:
+
+```{r}
+df_tidy %>%
+  sample_n(2, replace=FALSE)
+```
+
+Note the `replace` parameter. As you might imagine, this indicates whether you want to sample with **replacement** or not (i.e., whether the same row can be sampled multiple times.)
+
+To sample by a proportion of your dataset, use `sample_frac`:
+
+```{r}
+df_tidy %>%
+  sample_frac(.5, replace=FALSE)
+```
+
+### Subsetting columns
+
+You might also be interested in subsetting individual *columns*. You can do this using the `select` function. Here, I select just the `mpg`, `hp`, `wt`, and `qsec` columns from the `mtcars` dataset.
+
+```{r}
+df_selected = mtcars %>%
+  select(hp, wt, mpg, qsec)
+
+df_selected
+```
+
+In addition to specifying specific column names, you can select on other features, like whether it `ends_with` a particular string, whether it `contains` a particular string, or even whether it `matches` a regular expression.
+
+In my experience, the main reason I want to subset *columns* is that I'm interested in building some kind of correlation matrix, and the easiest thing to do is just subset the columns of interest and pass them into the `cor` function:
+
+```{r}
+cor(df_selected)
+```
+
+Below, in the **visualization** section, I'll show how you can then pass this correlation matrix into the `corrplot` function to quickly produce a visualization of which variables are most correlated in which direction.
+
+
+## Summarizing data
+
+In my view, one of the biggest strengths of `tidyverse` and its associated packages is the set of operations for **grouping** and **summarizing** data. 
+
+The `summarise` function allows you to quickly generate *summary statistics* for a dataset. Here, you can use pretty much any measure that summarizes a vector in a single value, i.e., descriptive measures of central tendency (mean, median, mode), variability (standard deviation, IQR), or even just the number of observations.
+
+```{r}
+df_tidy %>%
+  summarise(avg = mean(result),
+            sd = sd(result),
+            count = n())
+```
+
+This is particularly powerful when combined with **grouping** operations. Basically: the `group_by` function allows you to group your dataset along all the levels of any factor(s) you want, then calculate the same summary statistics for each level of that/those factor(s). For example, you could calculate the `mean` and `sd` of an outcome across conditions, or across items, or participants, or some combination of those factors.
+
+Let's calculate the same summary statistics as above for the same dataset, but now **grouped** according to the `treatment`: 
+
+```{r}
+df_tidy %>%
+  group_by(treatment) %>%
+  summarise(mean_outcome = mean(result),
+            sd_outcome = sd(result),
+            count = n())
+```
+
+As you can see, this is a really handy way for obtaining the descriptive measures you'd likely need to report in a paper. We've collapsed across all the individual participants, but retained different measures for the different `treatment` conditions. 
+
+Furthermore, you might be interested in overall individual differences in this outcome. Thus, you can also `group_by` individual participants: 
+
+```{r}
+df_tidy %>%
+  group_by(name) %>%
+  summarise(mean_outcome = mean(result),
+            sd_outcome = sd(result),
+            count = n())
+```
+
+Now we've collapsed across the levels of `treatment` but retained the distinction between participants (`name`). 
+
+Theoretically, you could group by *both* factors, although in this case that would just end up recapitulating the original dataset, since we only have one observation per participant per treatment condition. This doesn't really make sense---it's not a "summary"---but I'll show it anyway:
+
+```{r}
+df_tidy %>%
+  group_by(name, treatment) %>%
+  summarise(mean_outcome = mean(result),
+            sd_outcome = sd(result),
+            count = n()) 
+```
+
+As you can see, the `count` column is 1 for each row because there's only one observation per **cell**. Furthermore, the `sd_outcome` column is all `NA`; this is because you can't calculate standard deviation of a single point, so R just produces an `NA` value.
+
+In some of the **applied** sections below, we'll run through some examples of using `summarise` on real-world data, which hopefully will be more exciting.
+
+## Transforming data
+
+By **transforming** data, I mean you might want to quickly create *new* variables from the variables you already have. 
+
+Let's consider the famous `iris` dataset. It contains the following columns:
+
+```{r}
+colnames(iris)
+```
+
+Depending on our goals, we might want to *combine* these columns in specific ways to create new composite variables. For example, maybe we want to combine the measures of `Sepal.Width` and `Sepal.Length` (for illustration purposes, this combination will be a simple sum). We can quickly do this by using the `mutate` function:
+
+
+```{r}
+iris %>%
+  mutate(sepal = Sepal.Width + Sepal.Length) %>%
+  head(5)
+```
+
+This may not seem that useful at first glance. After all, you can also create a new variable using the `{dataframe}${variable_name} = ...` syntax. What's the point of passing it into the `mutate` function?
+
+One benefit is that you can perform multiple mutations simultaneously (or at least in the same function call):
+
+```{r}
+iris %>%
+  mutate(sepal = Sepal.Width + Sepal.Length,
+         petal = Petal.Width + Petal.Length) %>%
+  head(5)
+```
+
+Using the piping operator, you can also chain *multiple* mutation operations and use the output of one as the input of another:
+
+```{r}
+iris %>%
+  mutate(sepal = Sepal.Width + Sepal.Length,
+         petal = Petal.Width + Petal.Length) %>%
+  mutate(total = sepal + petal) %>%
+  head(5)
+```
+
+Additionally, you can combine `mutate` with the functions we reviewed above. This is especially useful when combined with `group_by` and `summarise`, as below:
+
+```{r}
+iris %>%
+  group_by(Species) %>%
+  summarise(mean_sepal_width = mean(Sepal.Width),
+            mean_sepal_length = mean(Sepal.Length),
+            mean_petal_width = mean(Petal.Width),
+            mean_petal_length = mean(Petal.Length)) %>%
+  mutate(sepal = mean_sepal_width + mean_sepal_length,
+         petal = mean_petal_width + mean_petal_length) %>%
+  mutate(total = sepal + petal)
+```
+
+First, we group by the different species (setosa, versicolor, and virginica). Then, we calculate summary statistics for each species, e.g., the `mean_sepal_width` for each. We can then use these new *summary statistics* (the output of `summarise`) as input to `mutate` in the same way as before, i.e., combining the mean sepal width and length. And finally, we can use the output of the first `mutate` call to yet another `mutate` call. So we end up with a dataframe with only three rows---one per species---and new columns for each of these summary statistics and new "mutated" variables. I'm not a botanist so I have no idea whether this new dataframe is at all *useful*, but for the purposes of this tutorial, it certainly serves the intended purpose of illustrating how flexibly these different operations can be deployed.
+
+## Combining data
+
+Finally, there are a host of operations for **combining** multiple datasets. I won't review them all in detail here (again, see [the cheatsheet](https://rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf)), but a common operation is **joining** two dataframes on the matching rows for a specific column or set of columns.
+
+There are multiple *kinds* of join operations. A `left_join` means that given two dataframes `a` and `b`, you want to join `b` to `a`. A `right_join` means---as you might expect---the opposite. An `inner_join` means that you only retain rows that are in *both* datasets, while an `outer_join` means that you retain *all* rows.
+
+Let's walk through this with another toy example. Imagine that in addition to our results in the `df_tidy` dataframe, we have another dataframe specifying individual differences for each participant. This only has three rows (one per participant), but has a couple columns (`age` and `gender`):
+
+```{r}
+df_inds = data.frame(
+  name = c("john", "mary", "jane"),
+  age = c(24, 45, 32),
+  gender = c("M", "F", "F")
+)
+
+df_inds
+```
+
+For whatever reason---maybe the purpose of keeping your data relatively anonymous (although then why are the participants named???)---this dataframes was kept separate from the results dataframe until a critical analysis step, and now you need to combine them. 
+
+We can do this using a `left_join` operation (or `right_join`), where we merge everything from `df_inds` into `df_tidy` using a specific column (`name`):
+
+```{r}
+df_merged = df_tidy %>%
+  left_join(df_inds, by="name")
+df_merged
+```
+
+Now we have a new dataset (`df_merged`), which has all the original results, as well as new variables picking out individual differences. If we wanted, we could do things like calculate new summary statistics for some of these factors^[Technically, you *could* summarize by age too. But given that age is continuous, this doesn't really make as much sense to me, unless the data themselves exhibit a lot of discontinuity (in which case you might first want to bin them---again, depending on what seems like the most principled treatment).], e.g.,:
+
+```{r}
+df_merged %>%
+  group_by(gender) %>%
+  summarise(mean_outcome = mean(result))
+```
+
+But what if our data are *misaligned* in some way? That is, what if we had to drop a participant because of an error in their result, but we still have the individual difference data for them?
+
+```{r}
+df_inds = data.frame(
+  name = c("john", "mary", "jane", "mike"),
+  age = c(24, 45, 32, 47),
+  gender = c("M", "F", "F", "M")
+)
+df_inds
+```
+
+We could still use `left_join` or `right_join`, though it's probably cleaner to use something like `inner_join`. In this case, `inner_join` means we only preserve the rows in the specified column that appear in *both* datasets.
+
+```{r}
+df_tidy %>%
+  inner_join(df_inds, by="name")
+```
+
+If we wanted, we could preserve all the rows using `full_join`. In this case, `full_join` will just fill in the missing values with `NA`.
+
+```{r}
+df_tidy %>%
+  full_join(df_inds, by="name")
+```
+
+
+## Summary
+
+This tutorial really only scratches the surface of data wrangling in R. I've chosen to focus on the operations afforded by `tidyverse` in particular, because those are some of the operations *I* find most useful.
+
+This certainly won't address things like identifying or removing *missing* data ("cleaning" data), dealing with outliers, determining whether to log-transform a variable, and so on. All these are also important components of data wrangling. But the tools I've summarized here hopefully provide a good starting point for making sense of often messy data.
+
+
+# Data visualization
+
+Data visualization is yet another broad topic. Full disclaimer: I'm definitely not an expert in "theory" of data visualization, nor do I have a particularly apt aesthetic sense^[I often joke that my favorite color for a graph is "default".]. So my goal here is not to instruct you in data visualization in general, but rather introduce you to some of the standard packages that allow you to quickly produce (in my opinion) nice-looking plots in R.
+
+This will include all the standard plots (scatterplots, boxplot, violinplot, etc.), with an emphasis on the `ggplot` package, but also things like correlation matrices, and a new packages I just recently learned about called `ggridges`. 
+
+I likely don't need to convince you why data visualization is important, but just in case, here are two reasons:
+
+1) Data visualization is important for communicating results in a *clear*, *concise*, and *accurate* way;  
+2) Data visualization is important for exploratory data analysis^[[John Tukey](https://en.wikipedia.org/wiki/John_Tukey), of [FFT fame](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm) and possible coiner of the term [bit](https://en.wikipedia.org/wiki/Bit#History) wrote: "The simple graph has brought more information to the data analyst’s mind than any other device."]
+
+. 
+
+## Theory and practice of ggplot
+
+One of the most widely used packages for plotting in R is `ggplot2` (which is imported automatically when you import `tidyverse`). As described [here](https://ggplot2.tidyverse.org/), this is based on the "Grammar of graphics" (Wilkinson, 2012), a theory of graphical visualization and presentation. I'm not going to go into great detail here, but as [Wickham (2010)](https://byrneslab.net/classes/biol607/readings/wickham_layered-grammar.pdf) describes, the core idea is that a **grammar of graphics** should allow us to describe the basic *components* of a visualization, in the same way that a grammar of language gives us a description of the basic units of that language (and their ordering). 
+
+Any given `ggplot` can consist of multiple *layers*; each layer is in turn composed of four components:
+
+1) the data and *aesthetic mapping*, e.g., which variable will be on the $x$ vs. $y$ axis, etc.;  
+2) the statistical transformation (if any) applied to the data, e.g., a *bin*, a *boxplot*, a *quantile*, etc;  
+3) a geometric object (**geom**), e.g., a *line* or *point*; 
+4) a position adjustment (if any), e.g., *jittering* a point plot.
+
+These components can be described separately, but they're also interdependent. For example, any given *geom* can only display certain *aesthetics*: a *point* can be modulated in terms of its `color`, `shape`, `position`, and `size`; a *bar* can be modulated in terms of its `position`, `height`, `width`, and `fill`.
+
+Below, I'll walk through some common kinds of plots you might want to produce with `ggplot`. Before that, just one final point: the `ggplot` API is designed with *tidy* data in mind, so if you haven't yet looked at the first part of the tutorial, that might be helpful to get acquainted with exactly what that means.
+
+### Scatterplots (geom_point)
+
+Scatterplots (sometimes called point plots), are a great way to visualize *all* your continuous bivariate data. In `ggplot`, you can build a scatterplot using the `geom_point`.
+
+Let's start off with a simple example, using the `mtcars` dataset. This dataset has a number of columns describing features of various cars. I'm interested in whether there's a relationship between the weight (`wt`) of a car and its miles per gallon (`mpg`). Here's some simple syntax to plot this relationship:
+
+```{r}
+mtcars %>%
+  ggplot() +
+  geom_point(aes(x = wt,
+                 y = mpg))
+```
+
+Breaking this logic down: first, we *pipe* (`%>%`) in the dataframe (`mtcars`) to the `ggplot` function; this way we don't need to explicitly call the `data` parameter, and it makes for clean code (in my opinion, at least). We then call `ggplot`, which initializes a *ggplot* object. 
+
+The next line is where the bulk of the plotting logic really happens. We call `geom_point`, which tells `ggplot` that we want a *point* `geom` specifically (i.e., a scatterplot). We then specify an aesthetic mapping using `aes`, and declare that the `x` axis will correspond to `wt`, while the `y` axis will correspond to `mpg`. Note that this aesthetic mapping *could* be specified in the `ggplot` call as well, which is in fact where I usually do it; I've specified it in `geom_point` here to make the logic a little clearer (i.e., `geom_point` clearly establishes a *layer* with a particular aesthetic mapping).
+
+We can also assign this plot to a variable, as below^[]:
+
+```{r}
+basic_plot = mtcars %>%
+  ggplot() +
+  geom_point(aes(x = wt,
+                 y = mpg))
+```
+
+This allows us to iteratively add layers to the plot. For example, I don't really like the default *theme*. I prefer `theme_minimal`, so let's use that:
+
+```{r}
+basic_plot = basic_plot + theme_minimal()
+basic_plot
+```
+
+Looking at the plot, it seems like there's a clear negative relationship between `wt` and `mpg`.
+
+But there are other *aesthetic* elements we can manipulate here. For example, we can change the `color` of our points according to some categorical or continuous variable. In this case, let's choose the categorical variable `am`, which indicates whether the car is either an automatic (0) or manual (1).
+
+```{r}
+basic_plot = basic_plot +
+  aes(color=factor(am))
+basic_plot
+```
+
+Note that although `am` is a qualitative variable, the values are coded as 0 or 1 so R thinks it's numeric by default. There a couple ways to deal with this. We can create a new column that just turns `am` into a factor. Or we can turn it into a factor in the call to `ggplot`, which is what I did here.
+
+This grouping allows us to see a further correlation: the manual cars in our dataset tend to be lighter and get better miles per gallon. 
+
+Another aesthetic element we can manipulate is the `size` of our points. This makes more sense to do with a continuous variable, so let's use `hp` (horsepower). 
+
+```{r}
+basic_plot = basic_plot +
+  aes(size = hp)
+basic_plot
+```
+
+There may be another correlation here: it *seems* like heavier cars also have higher horsepower.
+
+Finally, we can manipulate the `shape` of our points using a categorical/qualitative variable. Let's use `vs`, which stands for the kind of engine (v-shaped or standard):
+
+```{r}
+basic_plot = basic_plot +
+  aes(shape = factor(vs))
+basic_plot
+```
+
+
+Of course, you can also just bundle these all elements into one call to `ggplot` (which is how I'd normally do it). Below, I've also tuned the `alpha` variable to make the points slightly transparent.
+
+```{r}
+ mtcars %>%
+  ggplot() +
+  geom_point(aes(x = wt,
+                 y = mpg,
+                 color = factor(am),
+                 size = hp,
+                 shape = factor(vs)),
+             alpha = .8) +
+  theme_minimal()
+```
+
+This plot conveys a lot of information---maybe too much for a single graph. But the point is that `ggplot` gives you many options in terms of how to visualize your data and which dimensions can be shown in which way.
+
+One final thing that's quite relevant to scatterplots is the `geom_smooth` method. This is a useful way to display an overall *trend* on top of the raw data. You can parameterize the smoothing method here; `lm` will just draw a regression line, but there are other methods available too (`loess`, `glm`, etc.):
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = wt,
+             y = mpg)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+```
+
+
+### Line plots
+
+Line plots are frequently used when visualizing a change in some $Y$ variable over **time**. This is a useful way to illustrate *temporal trends*, whether across seconds, days, or years. 
+
+[ ... ]
+
+
+### Bar plots
+
+Often, you'll want to display your data as a function of some nominal variable, like the experimental `condition` that a given observation corresponds to. 
+
+Bar plots are obviously a common choice here. Typically, the height of a bar plot corresponds to the *mean* of the values for that level of a factor; often the standard error is shown as well. The `geom_bar` method can be used to produce this, or you can use other statistical transformations. 
+
+Below, we plot the *mean* `mpg` for cars as a function of their transmission type:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  theme_minimal()
+```
+
+Similar to what we saw earlier, it seems like manual cars have higher `mpg` on average. Note the use of the `stat` parameter in the call to `geom_bar`: this is telling `geom_bar` that we want to use a specific statistical transformation (`summary`; other options include `count` (the default) and `identity`). We then specify that the specific summary function we want to use on the $Y$ variable (`fun.y`) is `mean`. We could've chosen another summary like `median` or even something like `sd`, depending on what we're interested in visualizing.
+
+One problem with this visualization is it doesn't give us any indication of the amount of *variance* in each condition. A solution is to plot error bars. There are a few options here, but I usually do something like what's below. (There's also `geom_errorbar`, which can be used to similar effect.)
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  stat_summary (fun.y = function(x){mean(x)},
+                fun.ymin = function(x){mean(x) - 1*sd(x)/sqrt(length(x))},
+                fun.ymax = function(x){mean(x) + 1*sd(x)/sqrt(length(x))},
+                geom= 'pointrange', 
+                position=position_dodge(width=0.95)) +
+  theme_minimal()
+```
+
+This plots a *point* for the mean of each column (on top of the `geom_bar` object), and then also plots a range on the basis of the *standard error* (here, it's just plotting 1 standard error for illustration).
+
+Note that you can also forego the bars altogether and *only* use `stat_summary`:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  stat_summary (fun.y = function(x){mean(x)},
+                fun.ymin = function(x){mean(x) - 1*sd(x)/sqrt(length(x))},
+                fun.ymax = function(x){mean(x) + 1*sd(x)/sqrt(length(x))},
+                geom= 'pointrange', 
+                position=position_dodge(width=0.95)) +
+  theme_minimal()
+```
+
+Though now, the y-axis starts much higher, exaggerating the difference between our types of cars. If you want, you can remedy this using `scale_y_continuous`:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  stat_summary (fun.y = function(x){mean(x)},
+                fun.ymin = function(x){mean(x) - 1*sd(x)/sqrt(length(x))},
+                fun.ymax = function(x){mean(x) + 1*sd(x)/sqrt(length(x))},
+                geom= 'pointrange', 
+                position=position_dodge(width=0.95)) +
+  scale_y_continuous(limits = c(0, max(mtcars$mpg))) +
+  theme_minimal()
+```
+
+You might also want to visualize *another* variable here. That is, maybe you're interested in the *interaction* between `am` and something else, like the engine type (`vs`). You can do this by setting the `fill` paramter:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg,
+             fill = factor(vs))) +
+  geom_bar(stat = "summary", fun.y = "mean", position = "dodge") +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  stat_summary (fun.y = function(x){mean(x)},
+                fun.ymin = function(x){mean(x) - 1*sd(x)/sqrt(length(x))},
+                fun.ymax = function(x){mean(x) + 1*sd(x)/sqrt(length(x))},
+                geom= 'pointrange', 
+                position=position_dodge(width=0.95)) +
+  theme_minimal()
+```
+
+Note, however, that you'll need to set the `position` parameter to `"dodge"` to make the plot show the two fills side-by-side, rather than stacked.
+
+These are also just the default fill colors; see this reference on [ggplot colors](http://sape.inf.usi.ch/quick-reference/ggplot2/colour) if you're interested in crafting unique sets of colors.
+
+### Boxplots and violinplots
+
+Bar plots are fine, but aren't the most economical in terms of how they use space. The actual information conveyed is just the *mean* and *standard error*. 
+
+I usually prefer using *boxplots* or *violinplots*, where possible, to get a better sense of how a distribution is shaped as a function of some nominal variable (or just *density* plots with different fills; see below).
+
+Plus, `geom_boxplot` and `geom_violin` are actually easier to implement, in my view. Here's the call to `geom_boxplot`:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  geom_boxplot() +
+  scale_y_continuous(limits = c(0, max(mtcars$mpg))) +
+  theme_minimal()
+```
+
+And here's the call to `geom_violin`: 
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = factor(am),
+             y = mpg)) +
+  labs(x = "Transmission (0 = auto, 1 = manual)") +
+  geom_violin() +
+  scale_y_continuous(limits = c(0, max(mtcars$mpg))) +
+  theme_minimal()
+```
+
+### Density plots
+
+One of my favorite plots to produce is a *density plot*. This is similar to a violin plot (which is just a rotated kernel density plot), but here, the continuous variable is plotted along the x-axis---much like a histogram.
+
+I find density plots particularly useful (and aesthetically pleasing) when I want to visualize *multiple* distributions side by side. You can do this using the `fill` parameter:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = mpg,
+             fill = factor(am))) +
+  geom_density(alpha = .6) +
+  theme_minimal()
+```
+
+(I usually set the `alpha` value to something below 1, just so you can see the overlap between these distributions).
+
+Rather than collapsing this information into a mean and associated standard error, or even into a median and IQR, this gives a much better sense for the range and *shape* of each distribution. And although audiences aren't always as familiar with density plots as barplots or boxplots, they're usually familiar with a histogram---so you can explain it in terms of a *smoothed histogram*.
+
+
+### Faceting
+
+One of the final things to cover about `ggplot` is the `facet` function. This allows you to visualize the same **aesthetic** in different *panels*, where each panel corresponds to a level of a categorical variable (or the intersection of levels of multiple categorical variables).
+
+You can `facet` your visualization using the `facet_grid` or `facet_wrap` functions. The main benefit to use `facet_wrap` is that it will (as the name implies) "wrap" a "1d sequence of panels into 2d", thus saving screen space (typically). 
+
+Here's `facet_wrap` on the plot from above, with a different panel for each engine type:
+
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = mpg,
+             fill = factor(am))) +
+  geom_density(alpha = .6) +
+  facet_wrap(~factor(vs)) +
+  theme_minimal()
+```
+
+
+## ggridges
+
+I recently came across the `ggridges` library when looking through the source code for a recent paper and accompanying analysis (Coupé et al, 2019)^[A replication of the primary figure from their paper is implemented in the section below.]. The description of the titular plot (a **ridgeline plot**) is as follows:
+
+> geom_density_ridges arranges multiple density plots in a staggered fashion, as in the cover of the famous Joy Division album Unknown Pleasures.
+
+I haven't yet explored the library in detail. But I really love the `geom_density_ridges2` object, which, as the documentation describes, allows you to produce a serires of stacked density plots.
+
+Here's an example adapted from above, using all the defaults:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = mpg,
+             y = factor(am))) +
+  geom_density_ridges2() +
+  labs(y = "Transmission (0 = auto, 1 = manual)") +
+  theme_minimal()
+```
+
+I think this already looks nice, but there are some good ways to modify it. For example, we can add a `fill`:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = mpg,
+             y = factor(am),
+             fill = factor(vs))) +
+  geom_density_ridges2(alpha = .6) +
+  labs(y = "Transmission (0 = auto, 1 = manual)") +
+  theme_minimal()
+```
+
+But this is looking a little messy; personally, I prefer for the different levels to not overlap. We can use the `scale` parameter to make each plot a little smaller:
+
+```{r}
+mtcars %>%
+  ggplot(aes(x = mpg,
+             y = factor(am),
+             fill = factor(vs))) +
+  geom_density_ridges2(scale = 0.85, alpha = .6) + 
+  labs(y = "Transmission (0 = auto, 1 = manual)") +
+  theme_minimal()
+```
+
+There's lots more to play with in terms of `ggridges`, and this is only scratching the surface. But I really enjoy these plots, so I thought I'd add them to the tutorial.
+
+
+## Correlation plots
+
+Yet another common kind of plot is the **correlation plot**. This is a way to quickly visualize correlations between a large set of variables (or, in the case of a **confusion matrix**, the extent to which one is "confused" for another by some statistical model). 
+
+One of my favorite libraries for producing nice correlation plots is `corrPlot`. 
+
+The first step to do this is to create a correlation matrix, which you can do by passing a dataframe with some selected variables (using `select`!) to the `cor` function.
+
+```{r}
+selected_vars = mtcars %>%
+  select(hp, wt, mpg, qsec)
+
+cors = cor(selected_vars)
+
+cors
+```
+
+We can then just pass this new `cors` object to the `corrplot` method. Note that unlike `ggplot`, `corrplot` does *not* necessarily want your data in *tidy* format; it specifically wants your data to be structured as a correlation matrix.
+
+Here's `corrplot` in action, using all the defaults:
+
+```{r}
+corrplot(cors)
+```
+
+The colors here indicate the degree of positive or negative correlation, and the *size* of each point also reflects the *magnitude* of this correlation. Obviously, the diagonal is all "1" (everything is perfectly correlated with itself). We see other trends resurface from before: `hp` is positively correlated with `wt` but negatively with `mpg` and `qsec`.
+
+But you might also notice that half this correlation matrix is redundant: everything below the diagonal is just a mirror image of everything above. We can remedy that using the `type` parameter (options are `full`, `upper`, or `lower`):
+
+```{r}
+corrplot(cors,
+         type = "upper")
+```
+
+But there are other parameters we can set too. For example, maybe we don't want to visualize the strength and magnitude of our correlation using circles. We can change this using the `method` parameter; there are some neat alternatives here which show correlations in different ways. Here's the `ellipse` method:
+
+```{r}
+corrplot(cors,
+         type = "upper",
+         method = "ellipse")
+```
+
+The `ellipse` method is nice because the rotation of the ellipse is informative about the direction of the correlation (along with the *color* of the ellipse). This also reduces the diagonal to *lines*, which is helpful because the diagonal isn't particularly informative anyway---this makes it less distracting to the eye.
+
+You can also just plot out the *value* of the correlation coefficient using the `number` method:
+
+```{r}
+corrplot(cors,
+         type = "upper",
+         method = "number")
+```
+
+Or, perhaps more traditionally, you can just use `color`:
+
+```{r}
+corrplot(cors,
+         type = "upper",
+         method = "color")
+```
+
+My personal favorite is the `ellipse` method.
+
+
+
+# Analyzing other datasets
+
+Now we've reviewed some methods for **data wrangling** and **data visualization**, we can consider applying them to some interesting datasets. (Not that cars and irises aren't interesting.)
+
+Here are some examples to play around with, but I imagine many of you have your own datasets you'd like to apply some of these methods to.
+
+# Phoneme confusion probabilities
+
+One dataset I really enjoy is the `Phonemes` dataset: collected by Miller and Nicely (1955), this is a *confusion matrix* representing how many times one of 16 consonant phonemes was confused for another of those phonemes in a series of different auditory tasks.
+
+There are obviously many such datasets nowadays, but this is nicely packaged and is essentially "plug and play" in terms of deploying it in the `corrplot` method.
+
+First we load it:
+
+```{r}
+data("Phonemes")
+```
+
+Then we can plot this confusion matrix using `corrplot`:
+
+```{r}
+corrplot(Phonemes,
+         type = "upper",
+         tl.col = "black")
+```
+
+(Note that because this is a *confusion* matrix, all of the values are positive; that's why you won't see any red circles up there. That's also why I'm using the `circle` method, because the rotation of the ellipse wouldn't be particularly informative: the most informative thing here is simply the size and color of the circle.)
+
+## Information rate across languages
+
+
+
+
+```{r}
+library(ggridges)
+df_info = read_csv("data/coupe_data.csv")
+
+# Calculate SR and IR
+df_info$SR = df_info$NS / df_info$Duration
+df_info$IR = df_info$SR * df_info$ID
+
+
+
+# Add language family data (from Coupé et al, 2019)
+df_info$Family <- Vectorize(function(a) 
+{
+  switch(as.character(a),
+         "CAT" = "Indo-European",
+         "CMN" = "Sino-Tibetan",
+         "DEU" = "Indo-European",
+         "ENG" = "Indo-European",
+         "EUS" = "Basque",
+         "FIN" = "Uralic",
+         "FRA" = "Indo-European",
+         "HUN" = "Uralic",
+         "ITA" = "Indo-European",
+         "JPN" = "Japanese",
+         "KOR" = "Korean",
+         "SPA" = "Indo-European",
+         "SRP" = "Indo-European",
+         "THA" = "Tai-Kadai",
+         "TUR" = "Turkic",
+         "VIE" = "Austroasiatic",
+         "YUE" = "Sino-Tibetan",
+         NA)
+  
+}, "a")(as.character(df_info$Language));
+
+
+df_reshaped = df_info %>%
+  select(Language, SR, IR, Family) %>%
+  gather(... = c(SR, IR), key = 'measure') 
+
+
+tmp_summaries = df_reshaped %>%
+  group_by(measure) %>%
+  summarise(mean = mean(value),
+            sd = sd(value))
+
+
+df_reshaped %>%
+  ggplot(aes(x = value,
+             y = reorder(Language, value),
+             fill = Family)) +
+  geom_density_ridges2(aes(height = ..density..), color=gray(0.25), alpha = 0.5, scale=0.85, size=0.75, stat="density") +
+  facet_wrap(~measure, scales="free") +
+  geom_spoke(mapping=aes(x=value, y=Language, angle=pi/2, radius=0.20), alpha=0.3,
+             color="black", size=0.25, show.legend=FALSE) +
+  geom_vline(aes(xintercept=mean), data=tmp_summaries, size=0.5, alpha=0.75,
+             color=gray(0.1)) +
+  geom_vline(aes(xintercept=mean-1.0*sd), data=tmp_summaries, size=0.5, alpha=0.75, 
+             linetype="dashed", color=gray(0.1)) + 
+  geom_vline(aes(xintercept=mean+1.0*sd), data=tmp_summaries, size=0.5, alpha=0.75, 
+             linetype="dashed", color=gray(0.1)) +
+  labs(x = "Measure (IR or SR)",
+       y = "Language") +
+  theme_minimal()
+
+
+
+
+
+### Modeling 
+
+model_full = lmer(data = df_info,
+                  SR ~ ID + (1 | Language) + (1 | Speaker) + (1 | Text) + (1 | Family),
+                  REML = FALSE)
+
+model_reduced = lmer(data = df_info,
+                     SR ~ 
+                     (1 | Language) + (1 | Speaker) + (1 | Text) + (1 | Family),
+                     REML = FALSE)
+
+anova(model_full, model_reduced)
+
+```
+
+
+
+
+# Lancaster sensorimotor norms
+
+
+```{r}
+df_lancaster = read_csv("data/lancaster_norms.csv")
+
+selected_vars = df_lancaster %>%
+  select(Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean, Gustatory.mean,
+         Olfactory.mean, Visual.mean, Foot_leg.mean, Hand_arm.mean,
+         Head.mean, Mouth.mean)
+
+cors = cor(selected_vars)
+corrplot(cors,
+         type = "upper",
+         tl.col = "black",
+         order = "hclust",
+         tl.srt = 45)
+
+
+
+## Not really useful
+df_select_columns_tidy = df_lancaster %>%
+  select(Word, Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean, 
+         Gustatory.mean, Olfactory.mean, Visual.mean, Foot_leg.mean, Hand_arm.mean,
+         Head.mean, Mouth.mean) %>%
+  gather(... = c(Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean,
+                 Gustatory.mean, Olfactory.mean, Visual.mean, Foot_leg.mean, 
+                 Hand_arm.mean, Head.mean, Mouth.mean),
+         key = "measure",
+         value = "rating"
+         )
+
+
+
+
+
+```
+
+
+# Summary 
+
+
+# Citation
+
+For citation, please cite as:
+
+Trott, S. (2020). Data wrangling and visualization in R. Retrieved from https://seantrott.github.io/binary_classification_R/.
+
+
+
+
+
+# References
+
+Coupé, C., Oh, Y. M., Dediu, D., & Pellegrino, F. (2019). Different languages, similar encoding efficiency: Comparable information rates across the human communicative niche. Science Advances, 5(9), eaaw2594.
+
+Lynott, D., Connell, L., Brysbaert, M., Brand, J., & Carney, J. (2019). The Lancaster Sensorimotor Norms: multidimensional measures of perceptual and action strength for 40,000 English words. Behavior Research Methods, 1-21.
+
+Wickham, H. (2010). A layered grammar of graphics. Journal of Computational and Graphical Statistics, 19(1), 3-28. [link](https://byrneslab.net/classes/biol607/readings/wickham_layered-grammar.pdf)
+
+Wickham, H. (2014). Tidy data. Journal of Statistical Software, 59(10), 1-23. [link](https://vita.had.co.nz/papers/tidy-data.pdf)
+
+Wickham, H. (2017). The tidyverse. R package ver. 1.1, 1. [link](https://slides.nyhackr.org/presentations/The-Tidyverse_Hadley-Wickham.pdf)
+
+Wilkinson, L. (2012). The grammar of graphics. In Handbook of Computational Statistics (pp. 375-414). Springer, Berlin, Heidelberg.
