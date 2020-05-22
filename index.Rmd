@@ -513,7 +513,7 @@ Breaking this logic down: first, we *pipe* (`%>%`) in the dataframe (`mtcars`) t
 
 The next line is where the bulk of the plotting logic really happens. We call `geom_point`, which tells `ggplot` that we want a *point* `geom` specifically (i.e., a scatterplot). We then specify an aesthetic mapping using `aes`, and declare that the `x` axis will correspond to `wt`, while the `y` axis will correspond to `mpg`. Note that this aesthetic mapping *could* be specified in the `ggplot` call as well, which is in fact where I usually do it; I've specified it in `geom_point` here to make the logic a little clearer (i.e., `geom_point` clearly establishes a *layer* with a particular aesthetic mapping).
 
-We can also assign this plot to a variable, as below^[]:
+We can also assign this plot to a variable, as below:
 
 ```{r}
 basic_plot = mtcars %>%
