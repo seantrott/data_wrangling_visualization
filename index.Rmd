@@ -30,6 +30,8 @@ This tutorial is certainly not exhaustive. The point is simply to serve as an in
 - [a layered grammar of graphics (Wickham 2010)](https://byrneslab.net/classes/biol607/readings/wickham_layered-grammar.pdf)  
 - [data visualization tutorial](https://r4ds.had.co.nz/data-visualisation.html)
 
+I also have a number of other [statistics tutorials](https://seantrott.github.io/stats/) in case you're interested.
+
 
 # Load libraries
 
@@ -890,21 +892,97 @@ corrplot(Phonemes,
 
 (Note that because this is a *confusion* matrix, all of the values are positive; that's why you won't see any red circles up there. That's also why I'm using the `circle` method, because the rotation of the ellipse wouldn't be particularly informative: the most informative thing here is simply the size and color of the circle.)
 
-## Information rate across languages
 
+## Lancaster sensorimotor norms
 
+The `corrplot` function is slightly more useful with a dataset that has actual correlation values, or has variables for which you could conceivably find correlations between $[0, 1]$.
 
+One such dataset is the Lancaster sensorimotor norms (Lynott et al, 2019). For about 40k words, the authors obtained human judgments of each word's "sensorimotor profile", including ratings of the perceptual modalities associated with that word and the action effectors (e.g., hand/arm, leg, etc.).
+
+I've included this data in the "data" directory of this GitHub repository, so you should be able to load it with the code below (assuming you're in the base directory of the repo):
 
 ```{r}
-library(ggridges)
+df_lancaster = read_csv("data/lancaster_norms.csv")
+nrow(df_lancaster)
+```
+
+As a first step, let's just produce a correlation plot of the perceptual modalities we have data for.
+
+First we select those columns using `select`, then get the correlation coefficients using `cors`, and then plot them using `corrplot`:
+
+```{r}
+selected_vars = df_lancaster %>%
+  select(Haptic.mean, Interoceptive.mean, Auditory.mean, Gustatory.mean,
+         Olfactory.mean, Visual.mean)
+
+cors = cor(selected_vars)
+corrplot(cors,
+         method = "ellipse",
+         type = "upper",
+         tl.col = "black",
+         order = "hclust")
+```
+
+There are some interesting trends. For example, words high in "interoception" are not as associated with the visual domain; words associated with the gustatory modality *are* very associated with the *olfactory* modality. 
+
+We can do the same thing with the action effectors:
+
+```{r}
+selected_vars = df_lancaster %>%
+  select(Foot_leg.mean, Hand_arm.mean, Torso.mean, Mouth.mean,
+         Head.mean)
+
+cors = cor(selected_vars)
+corrplot(cors,
+         method = "ellipse",
+         type = "upper",
+         tl.col = "black",
+         order = "hclust")
+```
+
+Not too many *strongly* negative correlations here, but we see that words associated with the foot/leg effectors are also strongly associated with the torso (and with hand/arm). 
+
+Anyway, there's lots more here to explore. You could imagine finding grouping variables across words (e.g., Nouns vs. Verbs) and comparing their sensorimotor profiles. If you wanted to do that, you could execute the following steps:
+
+1) Locate another dataset indicating the part of speech for each word listed here;  
+2) Merge those datasets using one of the `join` operations listed here;  
+3) Use `group_by` and `summarise` to obtain descriptive estimates of the sensorimotor dimensions of interest for each part of speech;  
+4) Use one of the visualization methods (maybe `geom_density_ridges2`, maybe `geom_boxplot`, etc.) to visualize these differences if they do exist.  
+
+## Information rate across languages
+
+Another interesting dataset is the one released by Coupé et al (2019). As described in my post [here](https://seantrott.github.io/information/), the authors obtained speech data from 10 speakers of 17 languages, representing multiple language families. Each speaker was asked to read aloud multiple texts; these texts were translated across languages. 
+
+The authors then computed the average **Speech Rate** (number of syllables per second) and compared this to the average **Information Density** of each language; the product of these terms was dubbed **Information Rate**. Their main claim was that speech rate was negatively correlated with information density, such that languages tend to convey "information" at similar rates.
+
+The dataset is quite rich, and the authors have generously made it available in their supplementary materials. Like the Lancaster sensorimotor norms, I've included it in the `data` directory here. 
+
+First, let's load it up:
+
+```{r}
 df_info = read_csv("data/coupe_data.csv")
+nrow(df_info)
+```
 
-# Calculate SR and IR
-df_info$SR = df_info$NS / df_info$Duration
-df_info$IR = df_info$SR * df_info$ID
+Let's look at the first rows:
 
+```{r}
+head(df_info, 5)
+```
 
+This data is very **tidy**! Each row corresponds to an observation. What's great about this is all the grouping factors we'd want to include as *random* factors in a mixed model get their own clearly labeled column: `Speaker`, Language`, and `Text`. 
 
+Now let's use the `mutate` function to calculate the new variables. First, we calculate **speech rate**, then use this to calculate **information rate**:
+
+```{r}
+df_info = df_info %>%
+  mutate(SR = NS / Duration) %>%
+  mutate(IR = SR * ID)
+```
+
+Okay, now we might want to label each language by the family it came from (since that didn't come with the original dataset). The authors did this using the following code:
+
+```{r}
 # Add language family data (from Coupé et al, 2019)
 df_info$Family <- Vectorize(function(a) 
 {
@@ -930,26 +1008,70 @@ df_info$Family <- Vectorize(function(a)
   
 }, "a")(as.character(df_info$Language));
 
+```
 
+Now we can do things like visualize **speech rate** as a function of **information density**:
+
+```{r}
+df_info %>%
+  ggplot(aes(x = ID,
+             y = SR)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+```
+
+As they reported, there's a negative relationship: languages with higher "information density" (i.e., more possible syllables and less predictable syllables) tend to be spoken slower.
+
+One of the other main arguments in the paper is that although languages vary quite a bit in speech rate, they don't vary so much in information rate. The authors produced a very nice visualization using `geom_density_ridges2`, which I'll replicate below.
+
+First, we need to create a new dataframe that **gathers** those two columns into a single column. This is because ultimately we'll want to plot both measures on different *facets*. We can do this with `gather`:
+
+```{r}
 df_reshaped = df_info %>%
   select(Language, SR, IR, Family) %>%
   gather(... = c(SR, IR), key = 'measure') 
+```
 
+Now we're in a position to plot the distribution of speech rates and information rates using `geom_density_ridges2`. Here's the code to do that, adapted from Coupé et al (2019):
 
-tmp_summaries = df_reshaped %>%
-  group_by(measure) %>%
-  summarise(mean = mean(value),
-            sd = sd(value))
-
-
+```{r}
 df_reshaped %>%
   ggplot(aes(x = value,
              y = reorder(Language, value),
              fill = Family)) +
   geom_density_ridges2(aes(height = ..density..), color=gray(0.25), alpha = 0.5, scale=0.85, size=0.75, stat="density") +
   facet_wrap(~measure, scales="free") +
-  geom_spoke(mapping=aes(x=value, y=Language, angle=pi/2, radius=0.20), alpha=0.3,
-             color="black", size=0.25, show.legend=FALSE) +
+  labs(x = "Measure (IR or SR)",
+       y = "Language") +
+  theme_minimal()
+```
+
+
+This already looks pretty nice! But it'd be helpful to have a sense of the `mean` and `sd` of the `IR` and `SR` variables, respectively; that's what Coupé et al (2019) show, and it helps illustrate whether (and to what extent) languages vary more in `SR` than `IR`.
+
+To do that, we can first create a small dataframe summarizing these measures:
+
+```{r}
+tmp_summaries = df_reshaped %>%
+  group_by(measure) %>%
+  summarise(mean = mean(value),
+            sd = sd(value))
+
+tmp_summaries
+```
+
+The average speech rate is about 6.63 syllables per second across languages; the average information rate is 39.2 bits per second across languages.
+
+Now we can plot these on top of the graph from before using `geom_vline`:
+
+```{r}
+df_reshaped %>%
+  ggplot(aes(x = value,
+             y = reorder(Language, value),
+             fill = Family)) +
+  geom_density_ridges2(aes(height = ..density..), color=gray(0.25), alpha = 0.5, scale=0.85, size=0.75, stat="density") +
+  facet_wrap(~measure, scales="free") +
   geom_vline(aes(xintercept=mean), data=tmp_summaries, size=0.5, alpha=0.75,
              color=gray(0.1)) +
   geom_vline(aes(xintercept=mean-1.0*sd), data=tmp_summaries, size=0.5, alpha=0.75, 
@@ -959,78 +1081,22 @@ df_reshaped %>%
   labs(x = "Measure (IR or SR)",
        y = "Language") +
   theme_minimal()
-
-
-
-
-
-### Modeling 
-
-model_full = lmer(data = df_info,
-                  SR ~ ID + (1 | Language) + (1 | Speaker) + (1 | Text) + (1 | Family),
-                  REML = FALSE)
-
-model_reduced = lmer(data = df_info,
-                     SR ~ 
-                     (1 | Language) + (1 | Speaker) + (1 | Text) + (1 | Family),
-                     REML = FALSE)
-
-anova(model_full, model_reduced)
-
 ```
 
-
-
-
-# Lancaster sensorimotor norms
-
-
-```{r}
-df_lancaster = read_csv("data/lancaster_norms.csv")
-
-selected_vars = df_lancaster %>%
-  select(Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean, Gustatory.mean,
-         Olfactory.mean, Visual.mean, Foot_leg.mean, Hand_arm.mean,
-         Head.mean, Mouth.mean)
-
-cors = cor(selected_vars)
-corrplot(cors,
-         type = "upper",
-         tl.col = "black",
-         order = "hclust",
-         tl.srt = 45)
-
-
-
-## Not really useful
-df_select_columns_tidy = df_lancaster %>%
-  select(Word, Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean, 
-         Gustatory.mean, Olfactory.mean, Visual.mean, Foot_leg.mean, Hand_arm.mean,
-         Head.mean, Mouth.mean) %>%
-  gather(... = c(Haptic.mean, Torso.mean, Interoceptive.mean, Auditory.mean,
-                 Gustatory.mean, Olfactory.mean, Visual.mean, Foot_leg.mean, 
-                 Hand_arm.mean, Head.mean, Mouth.mean),
-         key = "measure",
-         value = "rating"
-         )
-
-
-
-
-
-```
+And that's almost a complete replication of the original figure. 
 
 
 # Summary 
 
+The goal of this tutorial was to give you a (relatively) quick introduction to the notion of **tidy data**, some functions in the `tidyverse` package to help tidy, transform, and summarize data, and finally, some tools in `ggplot` and other packages to create data visualizations. 
+
+As always, if you see anything you disagree with, or if there are any errors, or even if you just have a question, don't hesitate to email me: sttrott at ucsd dot edu.
 
 # Citation
 
 For citation, please cite as:
 
 Trott, S. (2020). Data wrangling and visualization in R. Retrieved from https://seantrott.github.io/binary_classification_R/.
-
-
 
 
 
