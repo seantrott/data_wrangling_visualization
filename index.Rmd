@@ -521,7 +521,7 @@ basic_plot = mtcars %>%
   ggplot() +
   geom_point(aes(x = wt,
                  y = mpg,
-                 color = transmission))
+                 color = am))
 ```
 
 This allows us to iteratively add layers to the plot. For example, I don't really like the default *theme*. I prefer `theme_minimal`, so let's use that:
