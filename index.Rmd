@@ -163,13 +163,13 @@ I also think it's important to point out that the structures in `df_messy_1` or 
 
 An obvious question at this point is: given that my data isn't tidy, how do I make it tidy?
 
-Fortunately, the `tidyverse` has a number of options for this. One of the most relevant is the `gather` function. From the documentation:
+Fortunately, the `tidyverse` has a number of options for this. One of the most relevant is the `pivot_longer` function (formerly `gather`, in previous iterations of this tutorial). From the documentation:
 
-> Gather takes multiple columns and collapses into key-value pairs, duplicating all other columns as needed. You use gather() when you notice that you have columns that are not variables.
+> pivot_longer() "lengthens" data, increasing the number of rows and decreasing the number of columns. The inverse transformation is pivot_wider()
 
-In other words, `gather` is a really straightforward way to make data tidy, in which each row consists of an **observation**.
+In other words, `pivot_longer` is a really straightforward way to make data tidy, in which each row consists of an **observation**.
 
-Let's use `gather` on each of our messy dataframes from above.
+Let's use `pivot_longer` on each of our messy dataframes from above.
 
 ### Tidying messy data no. 1
 
@@ -182,22 +182,22 @@ df_messy_1
 
 How could we make this tidy? There are currently four columns and two rows, but in reality, we actually have *six* observations: one per treatment per participant. This means that ultimately, we want our data structure to have **three** columns (following the format of `df_tidy` above): one column indicating the `treatment`, one column indicating the `result` for that treatment, and one column indicating the `name` of the participant from whom that result was obtained.
 
-This is the call to `gather` that would produce such a data structure:
+This is the call to `pivot_longer` that would produce such a data structure:
 
 
 ```{r}
 df_messy_1 %>%
-  gather(... = c(john, mary, jane), key = 'name', value = 'result')
+  pivot_longer(c(john, mary, jane), names_to = 'name', values_to = 'result')
 
 ```
 
 What exactly is happening here?
 
-First, note the [piping](https://www.datacamp.com/community/tutorials/pipe-r-tutorial) operator `%>%`: this is a way to **chain together** multiple functions in R. In this case, we can omit the `data` argument from `gather` because `%>%` is telling R to pass it in already. I like this approach. because each function/operation can be given its own line, making the code clear and readable.
+First, note the [piping](https://www.datacamp.com/community/tutorials/pipe-r-tutorial) operator `%>%`: this is a way to **chain together** multiple functions in R. In this case, we can omit the `data` argument from `pivot_longer` because `%>%` is telling R to pass it in already. I like this approach. because each function/operation can be given its own line, making the code clear and readable.
 
-Next, the `... = c(john, mary, jane)` argument tells `gather` which columns to "gather", essentially. If you leave this blank, it'll try to gather *all* the columns, but that's not what we want here: we don't want to put `treatment` and `name` in the same column. In this case, we're telling the function to collect the three named columns and put them into a single set of `key/value` columns.
+Next, the `c(john, mary, jane)` argument tells `pivot_longer` which columns to pivot, essentially. If you leave this blank, it'll try to gather *all* the columns, but that's not what we want here: we don't want to put `treatment` and `name` in the same column. In this case, we're telling the function to collect the three named columns and put them into a single set of `key/value` columns.
 
-Finally, we tell `gather` what we want to name these new columns. You can leave this blank too, in which case they'll just be named `key` and `value`. But here we know that we want to name them `name` (the participant) and `result` (the outcome of that treatment). 
+Finally, we tell `pivot_longer` what we want to name these new columns. You can leave this blank too, in which case they'll just be named `key` and `value`. But here we know that we want to name them `name` (the participant) and `result` (the outcome of that treatment). 
 
 
 ### Tidying messy data no. 2
@@ -208,11 +208,11 @@ Now let's turn to the other messy data structure:
 df_messy_2
 ```
 
-This one has the opposite problem. Each `name` gets its own row, but there are separate columns for the two `treatments`. We need to `gather` these two columns and put them into a single set of `key/value` columns:
+This one has the opposite problem. Each `name` gets its own row, but there are separate columns for the two `treatments`. We need to collect these two columns and put them into a single set of `key/value` columns:
 
 ```{r}
 df_messy_2 %>%
-  gather(... = c(a, b), key = 'treatment', value = 'result')
+  pivot_longer(c(a, b), names_to = 'treatment', values_to = 'result')
 
 ```
 
@@ -479,7 +479,7 @@ I likely don't need to convince you why data visualization is important, but jus
 1) Data visualization is important for communicating results in a *clear*, *concise*, and *accurate* way;  
 2) Data visualization is important for exploratory data analysis^[[John Tukey](https://en.wikipedia.org/wiki/John_Tukey), of [FFT fame](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm) and possible coiner of the term [bit](https://en.wikipedia.org/wiki/Bit#History) wrote: "The simple graph has brought more information to the data analyst’s mind than any other device."]
 
-. 
+
 
 ## Theory and practice of ggplot
 
@@ -507,6 +507,7 @@ mtcars %>%
   ggplot() +
   geom_point(aes(x = wt,
                  y = mpg))
+
 ```
 
 Breaking this logic down: first, we *pipe* (`%>%`) in the dataframe (`mtcars`) to the `ggplot` function; this way we don't need to explicitly call the `data` parameter, and it makes for clean code (in my opinion, at least). We then call `ggplot`, which initializes a *ggplot* object. 
@@ -519,7 +520,8 @@ We can also assign this plot to a variable, as below:
 basic_plot = mtcars %>%
   ggplot() +
   geom_point(aes(x = wt,
-                 y = mpg))
+                 y = mpg,
+                 color = transmission))
 ```
 
 This allows us to iteratively add layers to the plot. For example, I don't really like the default *theme*. I prefer `theme_minimal`, so let's use that:
@@ -534,6 +536,12 @@ Looking at the plot, it seems like there's a clear negative relationship between
 But there are other *aesthetic* elements we can manipulate here. For example, we can change the `color` of our points according to some categorical or continuous variable. In this case, let's choose the categorical variable `am`, which indicates whether the car is either an automatic (0) or manual (1).
 
 ```{r}
+mtcars$transmission = fct_recode(
+  factor(mtcars$am),
+  "auto" = "0",
+  "manual" = "1"
+)
+
 basic_plot = basic_plot +
   aes(color=factor(am))
 basic_plot
@@ -1025,12 +1033,12 @@ As they reported, there's a negative relationship: languages with higher "inform
 
 One of the other main arguments in the paper is that although languages vary quite a bit in speech rate, they don't vary so much in information rate. The authors produced a very nice visualization using `geom_density_ridges2`, which I'll replicate below.
 
-First, we need to create a new dataframe that **gathers** those two columns into a single column. This is because ultimately we'll want to plot both measures on different *facets*. We can do this with `gather`:
+First, we need to create a new dataframe that **collects** those two columns into a single column. This is because ultimately we'll want to plot both measures on different *facets*. We can do this with `pivot_longer`:
 
 ```{r}
 df_reshaped = df_info %>%
   select(Language, SR, IR, Family) %>%
-  gather(... = c(SR, IR), key = 'measure') 
+  pivot_longer(c(SR, IR), names_to = 'measure') 
 ```
 
 Now we're in a position to plot the distribution of speech rates and information rates using `geom_density_ridges2`. Here's the code to do that, adapted from Coupé et al (2019):
