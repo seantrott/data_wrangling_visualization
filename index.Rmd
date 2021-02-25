@@ -325,6 +325,7 @@ df_tidy %>%
   summarise(mean_outcome = mean(result),
             sd_outcome = sd(result),
             count = n())
+
 ```
 
 Now we've collapsed across the levels of `treatment` but retained the distinction between participants (`name`). 
@@ -521,7 +522,7 @@ basic_plot = mtcars %>%
   ggplot() +
   geom_point(aes(x = wt,
                  y = mpg,
-                 color = am))
+                 color = factor(am)))
 ```
 
 This allows us to iteratively add layers to the plot. For example, I don't really like the default *theme*. I prefer `theme_minimal`, so let's use that:
@@ -596,13 +597,6 @@ mtcars %>%
   geom_smooth(method = "lm") +
   theme_minimal()
 ```
-
-
-### Line plots
-
-Line plots are frequently used when visualizing a change in some $Y$ variable over **time**. This is a useful way to illustrate *temporal trends*, whether across seconds, days, or years. 
-
-[ ... ]
 
 
 ### Bar plots
